@@ -1,0 +1,61 @@
+import yfinance as yf
+import pandas as pd
+from datetime import datetime
+import time
+
+def fetch_multiple_stocks(stock_list, period='1y'):
+    # 產生當前時間字串
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    file_date = datetime.now().strftime('%Y%m%d')
+    filename = f"股票追蹤報表_{file_date}.xlsx"
+    
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+        for symbol, market in stock_list:
+            ticker_symbol = f"{symbol}.TW" if market.upper() == 'TW' else symbol.upper()
+            print(f"正在抓取 {ticker_symbol}...")
+            
+            try:
+                stock = yf.Ticker(ticker_symbol)
+                
+                # --- 1. 處理基本資料 ---
+                info = stock.info
+                basic_data = {
+                    "資料擷取時間": now_str,  # <--- 把日期標在這裡
+                    "公司名稱": info.get("longName", ticker_symbol),
+                    "股票代號": ticker_symbol,
+                    "產業": info.get("industry"),
+                    "當前價格": info.get("currentPrice"),
+                    "市值": info.get("marketCap"),
+                    "本益比(PE)": info.get("trailingPE"),
+                }
+                basic_info_df = pd.DataFrame([basic_data]).T
+                basic_info_df.columns = ['詳細內容']
+                
+                # --- 2. 處理歷史股價 ---
+                history_df = stock.history(period=period)
+                history_df.index = history_df.index.tz_localize(None) # 移除時區以便 Excel 讀取
+                
+                # 重設索引讓 "Date" 變成獨立的一欄，而不只是索引
+                history_df = history_df.reset_index()
+                # 格式化日期，只保留 YYYY-MM-DD
+                history_df['Date'] = history_df['Date'].dt.strftime('%Y-%m-%d')
+                # 重新按日期排序（最新在前）
+                history_df = history_df.sort_values(by='Date', ascending=False)
+                
+                # --- 3. 寫入 Excel ---
+                # 將基本資料與歷史股價存入同一個分頁
+                # 先寫基本資料，空兩行後再寫歷史股價
+                basic_info_df.to_excel(writer, sheet_name=f"{symbol}", startrow=0)
+                history_df.to_excel(writer, sheet_name=f"{symbol}", startrow=len(basic_info_df) + 2, index=False)
+                
+                print(f"--- {ticker_symbol} 完成 ---")
+                time.sleep(1) 
+                
+            except Exception as e:
+                print(f"❌ {ticker_symbol} 出錯: {e}")
+
+    print(f"\n✅ 報表已儲存至：{filename}")
+
+if __name__ == "__main__":
+    my_portfolio = [("2330", "TW"), ("AAPL", "US"), ("NVDA", "US")]
+    fetch_multiple_stocks(my_portfolio)

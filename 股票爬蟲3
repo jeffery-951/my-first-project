@@ -1,0 +1,73 @@
+import yfinance as yf
+import pandas as pd
+from datetime import datetime
+import time
+
+def color_return(val):
+    """
+    自定義顏色函數：漲紅跌綠 (台灣慣用色)
+    """
+    if isinstance(val, (int, float)):
+        if val > 0:
+            return 'color: red'
+        elif val < 0:
+            return 'color: green'
+    return 'color: black'
+
+def fetch_pro_report(stock_list, period='1mo'):
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+    filename = f"股票分析報表_{timestamp}.xlsx"
+    
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+        for symbol, market in stock_list:
+            ticker_str = f"{symbol}.TW" if market.upper() == 'TW' else symbol.upper()
+            print(f"正在處理: {ticker_str}...")
+            
+            try:
+                stock = yf.Ticker(ticker_str)
+                name = stock.info.get("longName", symbol)
+                
+                # 1. 抓取股價並計算漲跌幅
+                df = stock.history(period=period)
+                df.index = df.index.tz_localize(None)
+                
+                # 新增「股票名稱」欄位在第一欄
+                df.insert(0, '股票名稱', name)
+                
+                # 計算漲跌幅百分比: (今日收盤 - 昨日收盤) / 昨日收盤
+                df['漲跌幅(%)'] = df['Close'].pct_change() * 100
+                
+                # 重新排序：日期由新到舊
+                df = df.sort_index(ascending=False)
+                
+                # 2. 套用顏色樣式 (Styler)
+                # 對「漲跌幅(%)」這一欄套用顏色邏輯
+                styled_df = df.style.map(color_return, subset=['漲跌幅(%)']) \
+                                   .format({'漲跌幅(%)': "{:.2f}%"}) # 格式化百分比
+                
+                # 3. 抓取基本資料
+                basic_info = pd.DataFrame([{
+                    "更新日期": datetime.now().strftime('%Y-%m-%d'),
+                    "名稱": name,
+                    "代號": ticker_str,
+                    "市值": stock.info.get("marketCap"),
+                    "本益比": stock.info.get("trailingPE")
+                }]).T
+                
+                # 4. 寫入 Excel 分頁
+                # 注意：有樣式的 dataframe 必須直接寫入
+                styled_df.to_excel(writer, sheet_name=f"{symbol}_數據")
+                basic_info.to_excel(writer, sheet_name=f"{symbol}_概況")
+                
+                print(f"--- {symbol} 處理完成 ---")
+                time.sleep(1)
+                
+            except Exception as e:
+                print(f"❌ {symbol} 出錯: {e}")
+
+    print(f"\n✅ 報表製作完成！檔案：{filename}")
+
+# --- 測試 ---
+if __name__ == "__main__":
+    my_list = [("2330", "TW"), ("AAPL", "US"), ("NVDA", "US"),("0050", "TW")]
+    fetch_pro_report(my_list)

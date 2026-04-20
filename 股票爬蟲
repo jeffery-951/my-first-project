@@ -1,0 +1,76 @@
+import yfinance as yf
+import pandas as pd
+from datetime import datetime
+import time
+
+def fetch_multiple_stocks(stock_list, period='1y'):
+    """
+    stock_list: 格式為 [("2330", "TW"), ("AAPL", "US"), ("2454", "TW")]
+    """
+    # 產生檔名，包含當天日期
+    filename = f"Stock_Report_Combined_{datetime.now().strftime('%Y%m%d')}.xlsx"
+    
+    # 使用 ExcelWriter 開啟一個檔案
+    with pd.ExcelWriter(filename, engine='openpyxl') as writer:
+        
+        for symbol, market in stock_list:
+            # 1. 處理代碼格式
+            if market.upper() == 'TW':
+                ticker_symbol = f"{symbol}.TW"
+            else:
+                ticker_symbol = symbol.upper()
+            
+            print(f"正在抓取 {ticker_symbol}...")
+            
+            try:
+                stock = yf.Ticker(ticker_symbol)
+                
+                # 2. 抓取基本資料 (Info)
+                info = stock.info
+                name = info.get("longName", ticker_symbol)
+                
+                basic_info_df = pd.DataFrame([{
+                    "公司名稱": name,
+                    "股票代號": ticker_symbol,
+                    "產業": info.get("industry"),
+                    "市值": info.get("marketCap"),
+                    "本益比(PE)": info.get("trailingPE"),
+                    "股息率": info.get("dividendYield"),
+                    "52週最高": info.get("fiftyTwoWeekHigh"),
+                    "52週最低": info.get("fiftyTwoWeekLow")
+                }]).T
+                basic_info_df.columns = ['詳細內容']
+                
+                # 3. 抓取歷史股價 (History)
+                history_df = stock.history(period=period)
+                history_df.index = history_df.index.tz_localize(None) # 移除時區
+                history_df = history_df.sort_index(ascending=False) # 最新日期在前
+                
+                # 4. 寫入 Excel (以股票代號命名分頁)
+                # 基本資料與股價分開存放，或者放在同一個 Sheet 的上下方
+                # 這裡示範：每個股票代號一個分頁，包含歷史股價
+                history_df.to_excel(writer, sheet_name=f"{symbol}_股價")
+                basic_info_df.to_excel(writer, sheet_name=f"{symbol}_基本資料")
+                
+                print(f"--- {ticker_symbol} 完成 ---")
+                
+                # 禮貌性延遲，避免被 Yahoo 封鎖
+                time.sleep(1) 
+                
+            except Exception as e:
+                print(f"❌ 抓取 {ticker_symbol} 時發生錯誤: {e}")
+
+    print(f"\n✅ 所有股票資料已整合至：{filename}")
+
+# --- 執行測試 ---
+if __name__ == "__main__":
+    # 在這裡輸入你想抓取的股票清單 (代號, 市場)
+    my_portfolio = [
+        ("2330", "TW"),   # 台積電
+        ("2317", "TW"),   # 鴻海
+        ("AAPL", "US"),   # 蘋果
+        ("NVDA", "US"),   # NVIDIA
+        ("TSLA", "US")    # 特斯拉
+    ]
+    
+    fetch_multiple_stocks(my_portfolio)
